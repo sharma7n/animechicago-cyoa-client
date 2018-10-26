@@ -3,7 +3,10 @@ import { Elm } from './Main.elm';
 import registerServiceWorker from './registerServiceWorker';
 
 Elm.Main.init({
-  node: document.getElementById('root')
+  node: document.getElementById('root'),
+  flags: {
+    outcomeType: "recommendation"
+  }
 });
 
 registerServiceWorker();

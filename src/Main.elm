@@ -1,4 +1,4 @@
-module Main exposing (Choice, Game, Model, Msg(..), Question, Recommendation, RequestData(..), Source, Tree(..), apiEndpointUrl, choiceDecoder, init, loadApplication, main, newGame, questionDecoder, recommendationDecoder, sourceDecoder, subscriptions, treeDecoder, update, updateGame, updateLoad, updateNoOp, view, viewChoice, viewError, viewGame, viewLoading, viewQuestion, viewRecommendation, viewSource, viewTree)
+module Main exposing (Choice, Game, Model, Msg(..), Question, Outcome, RequestData(..), Source, Tree(..), apiEndpointUrl, choiceDecoder, init, loadApplication, main, newGame, questionDecoder, outcomeDecoder, sourceDecoder, subscriptions, treeDecoder, update, updateGame, updateLoad, updateNoOp, view, viewChoice, viewError, viewGame, viewLoading, viewQuestion, viewOutcome, viewSource, viewTree)
 
 import Browser
 import Http
@@ -16,12 +16,13 @@ import Styles
 import Set exposing (Set)
 import Icons
 
+
 -- MODEL
 
 
 type Tree
     = Node Question
-    | Leaf Recommendation
+    | Leaf Outcome
 
 
 type alias Question =
@@ -36,10 +37,22 @@ type alias Source =
     }
 
 
-type alias Recommendation =
+type Outcome
+    = Recommendation RecommendationData
+    | Drawer DrawerData
+
+
+type alias RecommendationData =
     { title : String
     , availableOn : List Source
     }
+    
+type alias DrawerData =
+    { drawer : Maybe Int
+    }
+
+type alias Drawer =
+    Maybe Int
 
 
 type alias Choice =
@@ -54,6 +67,10 @@ type alias Game =
     , idleTime : Int
     , activeChoices : Set String
     }
+
+type OutcomeType
+    = RecommendationType
+    | DrawerType
 
 
 newGame : Tree -> Game
@@ -78,12 +95,12 @@ type alias Model =
 
 -- JSON
 
-
-questionDecoder : D.Decoder Question
-questionDecoder =
+    
+questionDecoder : OutcomeType -> D.Decoder Question
+questionDecoder outcomeType =
     D.map2 Question
         (D.field "text" D.string)
-        (D.field "choices" (D.list (D.lazy (\_ -> choiceDecoder))))
+        (D.field "choices" (D.list (D.lazy (\_ -> (choiceDecoder outcomeType)))))
 
 
 sourceDecoder : D.Decoder Source
@@ -93,23 +110,39 @@ sourceDecoder =
         (D.field "url" D.string)
 
 
-recommendationDecoder : D.Decoder Recommendation
+recommendationDecoder : D.Decoder Outcome
 recommendationDecoder =
-    D.map2 Recommendation
-        (D.field "title" D.string)
-        (D.field "available_on" (D.list sourceDecoder))
+    D.map Recommendation (
+        D.map2 RecommendationData
+            (D.field "title" D.string)
+            (D.field "available_on" (D.list sourceDecoder)))
+
+drawerDecoder : D.Decoder Outcome
+drawerDecoder =
+    D.map Drawer (
+        D.map DrawerData
+            (D.maybe <| D.field "drawer" D.int))
+
+outcomeDecoder : OutcomeType -> D.Decoder Outcome
+outcomeDecoder outcomeType =
+    case outcomeType of
+        RecommendationType ->
+            recommendationDecoder
+        
+        DrawerType ->
+            drawerDecoder
 
 
-choiceDecoder : D.Decoder Choice
-choiceDecoder =
+choiceDecoder : OutcomeType -> D.Decoder Choice
+choiceDecoder outcomeType =
     D.map2 Choice
         (D.field "text" D.string)
-        (D.field "result" treeDecoder)
+        (D.field "result" (treeDecoder outcomeType))
 
 
-treeDecoder : D.Decoder Tree
-treeDecoder =
-    D.oneOf [ D.map Node questionDecoder, D.map Leaf recommendationDecoder ]
+treeDecoder : OutcomeType -> D.Decoder Tree
+treeDecoder outcomeType =
+    D.oneOf [ D.map Node (questionDecoder outcomeType), D.map Leaf (outcomeDecoder outcomeType) ]
 
 
 
@@ -264,8 +297,8 @@ viewTree tree activeChoices =
         Node question ->
             viewQuestion question activeChoices
 
-        Leaf recommendation ->
-            viewRecommendation recommendation
+        Leaf outcome ->
+            viewOutcome outcome
 
 
 viewQuestion : Question -> Set String -> Element Msg
@@ -290,13 +323,37 @@ viewChoice choice activeChoices =
        ] (El.text choice.text)
 
 
-viewRecommendation : Recommendation -> Element msg
-viewRecommendation recommendation =
+viewOutcome : Outcome -> Element msg
+viewOutcome recommendation =
+    case recommendation of
+        Recommendation info ->
+            viewRecommendationData info
+        
+        Drawer drawer ->
+            viewDrawer drawer
+
+
+viewRecommendationData : RecommendationData -> Element msg
+viewRecommendationData info =
     El.column []
-        [ El.el [] (El.text <| "You should watch " ++ recommendation.title)
-        --, El.row [] (List.map viewSource recommendation.availableOn)
+        [ El.el [] (El.text <| "You should watch " ++ info.title)
         ]
 
+
+viewDrawer : DrawerData -> Element msg
+viewDrawer drawerData =
+    El.column []
+        [ El.el [] (El.text <| "Open drawer #" ++ representDrawer drawerData)
+        ]
+
+representDrawer : DrawerData -> String
+representDrawer drawerData =
+    case drawerData.drawer of
+        Just drawer ->
+            String.fromInt drawer
+        
+        Nothing ->
+            "None"
 
 viewSource : Source -> Element msg
 viewSource source =
@@ -341,20 +398,51 @@ apiEndpointUrl =
     Url.crossOrigin "https://animechicago-cyoa-content.herokuapp.com/game/data" [] []
 
 
-loadApplication : Cmd Msg
-loadApplication =
-    Http.send Load (Http.get apiEndpointUrl treeDecoder)
+loadApplication : OutcomeType -> Cmd Msg
+loadApplication outcomeType =
+    Http.send Load (Http.get apiEndpointUrl (treeDecoder outcomeType))
 
 
 
 -- ENTRY POINT
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( Loading
-    , loadApplication
-    )
+init : D.Value -> ( Model, Cmd Msg )
+init flags =
+    case getOutcomeType flags of
+        Ok outcomeType ->
+            ( Loading
+            , loadApplication outcomeType
+            )
+        
+        Err message ->
+            ( Failure (Http.BadUrl message)
+            , Cmd.none
+            )
+
+type alias Flags =
+    { outcomeType : String
+    }
+
+flagsDecoder : D.Decoder Flags
+flagsDecoder = D.map Flags (D.field "outcomeType" D.string)
+
+getOutcomeType : D.Value -> Result String OutcomeType
+getOutcomeType json = 
+    case D.decodeValue flagsDecoder json of
+        Ok flags ->
+            case flags.outcomeType of
+                "drawer" ->
+                    Ok DrawerType
+                
+                "recommendation" ->
+                    Ok RecommendationType
+                
+                _ ->
+                    Err ("unknown outcome type: " ++ flags.outcomeType)
+        
+        Err error ->
+            Err (D.errorToString error)
 
 
 main =
