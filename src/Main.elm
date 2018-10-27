@@ -1,4 +1,4 @@
-module Main exposing (Choice, Game, Model, Msg(..), Question, Outcome, RequestData(..), Source, Tree(..), apiEndpointUrl, choiceDecoder, init, loadApplication, main, newGame, questionDecoder, outcomeDecoder, sourceDecoder, subscriptions, treeDecoder, update, updateGame, updateLoad, updateNoOp, view, viewChoice, viewError, viewGame, viewLoading, viewQuestion, viewOutcome, viewSource, viewTree)
+module Main exposing (Choice, Game, Model, Msg(..), Question, Outcome, Source, Tree(..), choiceDecoder, init, main, newGame, questionDecoder, outcomeDecoder, sourceDecoder, subscriptions, treeDecoder, update, updateGame, updateNoOp, view, viewChoice, viewError, viewGame, viewLoading, viewQuestion, viewOutcome, viewSource, viewTree)
 
 import Browser
 import Http
@@ -82,15 +82,8 @@ newGame tree =
     }
 
 
-type RequestData a
-    = Loading
-    | Success a
-    | Failure Http.Error
-
-
 type alias Model =
-    RequestData Game
-
+    Result String Game
 
 
 -- JSON
@@ -150,8 +143,7 @@ treeDecoder outcomeType =
 
 
 type Msg
-    = Load (Result Http.Error Tree)
-    | Select Choice
+    = Select Choice
     | Reset
     | Back
     | Forward
@@ -168,60 +160,38 @@ updateNoOp model =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case model of
-        Loading ->
-            updateLoad msg model
-
-        Success game ->
+        Ok game ->
             updateGame msg game
 
-        Failure _ ->
+        Err _ ->
             updateNoOp model
-
-
-updateLoad : Msg -> Model -> ( Model, Cmd Msg )
-updateLoad msg model =
-    case msg of
-        Load result ->
-            case result of
-                Ok tree ->
-                    ( Success (newGame tree), Cmd.none )
-
-                Err error ->
-                    ( Failure error, Cmd.none )
-
-        _ ->
-            updateNoOp model
-
 
 updateGame : Msg -> Game -> ( Model, Cmd Msg )
 updateGame msg game =
     case msg of
         Select choice ->
-            ( Success ({ game | navigator = Navigator.push choice.result game.navigator, activeChoices = game.activeChoices |> Set.remove choice.text} |> resetIdleTime), Cmd.none )
+            ( Ok ({ game | navigator = Navigator.push choice.result game.navigator, activeChoices = game.activeChoices |> Set.remove choice.text} |> resetIdleTime), Cmd.none )
 
         Reset ->
-            ( Success (resetGame game), Cmd.none )
+            ( Ok (resetGame game), Cmd.none )
 
         Back ->
-            ( Success ({ game | navigator = Navigator.back game.navigator } |> resetIdleTime), Cmd.none )
+            ( Ok ({ game | navigator = Navigator.back game.navigator } |> resetIdleTime), Cmd.none )
 
         Forward ->
-            ( Success ({ game | navigator = Navigator.forward game.navigator} |> resetIdleTime), Cmd.none )
+            ( Ok ({ game | navigator = Navigator.forward game.navigator} |> resetIdleTime), Cmd.none )
         
         Tick _ ->
             if game.idleTime > 60 then
-                ( Success (resetGame game), Cmd.none )
+                ( Ok (resetGame game), Cmd.none )
             else
-                ( Success { game | idleTime = game.idleTime + 1}, Cmd.none )
+                ( Ok { game | idleTime = game.idleTime + 1}, Cmd.none )
 
         Highlight choice ->
-            ( Success ({ game | activeChoices = game.activeChoices |> Set.insert choice.text} |> resetIdleTime), Cmd.none )
+            ( Ok ({ game | activeChoices = game.activeChoices |> Set.insert choice.text} |> resetIdleTime), Cmd.none )
         
         Unhighlight choice ->
-            ( Success ({ game | activeChoices = game.activeChoices |> Set.remove choice.text} |> resetIdleTime), Cmd.none )
-        
-        Load _ ->
-            updateNoOp (Success game)
+            ( Ok ({ game | activeChoices = game.activeChoices |> Set.remove choice.text} |> resetIdleTime), Cmd.none )
 
 
 resetGame : Game -> Game
@@ -247,13 +217,10 @@ view model = El.layout
 viewModel : Model -> Element Msg
 viewModel model =
     case model of
-        Loading ->
-            viewLoading
-
-        Success game ->
+        Ok game ->
             viewGame game
 
-        Failure error ->
+        Err error ->
             viewError error
 
 
@@ -360,23 +327,10 @@ viewSource source =
     El.el [] (El.newTabLink [] { url = source.url, label = (El.text source.name) })
 
 
-viewError : Http.Error -> Element msg
-viewError error =
-    case error of
-        Http.Timeout ->
-            El.text "The request timed out."
+viewError : String -> Element msg
+viewError message =
+    El.text message
 
-        Http.BadUrl message ->
-            El.text ("URL error: " ++ message)
-
-        Http.NetworkError ->
-            El.text "Network Error."
-
-        Http.BadStatus response ->
-            El.text "Bad Status."
-
-        Http.BadPayload message response ->
-            El.text ("Bad payload " ++ message)
 
 bigText : String -> Element msg
 bigText message = El.el [ Font.size 30 ] (El.text message)
@@ -389,60 +343,46 @@ subscriptions model =
     Time.every 1000 Tick
 
 
-
--- HTTP
-
-
-apiEndpointUrl : String
-apiEndpointUrl =
-    Url.crossOrigin "https://animechicago-cyoa-content.herokuapp.com/game/data" [] []
-
-
-loadApplication : OutcomeType -> Cmd Msg
-loadApplication outcomeType =
-    Http.send Load (Http.get apiEndpointUrl (treeDecoder outcomeType))
-
-
-
 -- ENTRY POINT
 
 
 init : D.Value -> ( Model, Cmd Msg )
-init flags =
-    case getOutcomeType flags of
-        Ok outcomeType ->
-            ( Loading
-            , loadApplication outcomeType
+init json =
+    case getTree json of
+        Ok tree ->
+            ( Ok (newGame tree)
+            , Cmd.none
             )
         
         Err message ->
-            ( Failure (Http.BadUrl message)
+            ( Err message
             , Cmd.none
             )
 
-type alias Flags =
-    { outcomeType : String
-    }
-
-flagsDecoder : D.Decoder Flags
-flagsDecoder = D.map Flags (D.field "outcomeType" D.string)
-
-getOutcomeType : D.Value -> Result String OutcomeType
-getOutcomeType json = 
-    case D.decodeValue flagsDecoder json of
-        Ok flags ->
-            case flags.outcomeType of
-                "drawer" ->
-                    Ok DrawerType
-                
-                "recommendation" ->
-                    Ok RecommendationType
-                
-                _ ->
-                    Err ("unknown outcome type: " ++ flags.outcomeType)
+decodeOutcomeTypeString : String -> D.Decoder OutcomeType
+decodeOutcomeTypeString string =
+    case string of
+        "drawer" ->
+            D.succeed DrawerType
         
-        Err error ->
-            Err (D.errorToString error)
+        "recommendation" ->
+            D.succeed RecommendationType
+        
+        _ ->
+            D.fail <| "Unrecognized outcome type: " ++ string
+
+
+outcomeTypeDecoder : D.Decoder OutcomeType
+outcomeTypeDecoder =
+    D.field "outcomeType" D.string
+        |> D.andThen decodeOutcomeTypeString
+
+getTree : D.Value -> Result String Tree
+getTree json =
+    json
+        |> D.decodeValue outcomeTypeDecoder
+        |> Result.andThen (\outcomeType -> D.decodeValue (D.field "data" (treeDecoder outcomeType)) json)
+        |> Result.mapError D.errorToString
 
 
 main =
