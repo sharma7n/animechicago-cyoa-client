@@ -12,8 +12,20 @@ function initApp(flags) {
   });
 }
 
+function getUrlOutcomeType() {
+  if (window.location.search.includes('drawer')) {
+    return "drawer";
+  }
+
+  if (window.location.search.includes('recommendation')) {
+    return "recommendation";
+  }
+
+  return null;
+}
+
 function getOutcomeType(storage) {
-  return storage.getItem('outcomeType') || DEFAULT_OUTCOME_TYPE;
+  return getUrlOutcomeType() || storage.getItem('outcomeType') || DEFAULT_OUTCOME_TYPE;
 }
 
 function saveDataToLocal(data) {
