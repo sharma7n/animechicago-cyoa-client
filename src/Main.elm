@@ -3,6 +3,7 @@ module Main exposing (Choice, Game, Model, Msg(..), Question, Outcome, Source, T
 import Browser
 import Http
 import Json.Decode as D
+import Json.Encode as E
 import Navigator
 import Time
 import Url.Builder as Url
@@ -10,6 +11,7 @@ import Element as El exposing (Element)
 import Element.Border as Border
 import Element.Events exposing (onClick, onMouseEnter, onMouseLeave)
 import Element.Font as Font
+import Element.Input as Input
 import Element.Background as Background
 import Html exposing (Html)
 import Styles
@@ -66,7 +68,15 @@ type alias Game =
     , navigator : Navigator.Navigator Tree
     , idleTime : Int
     , activeChoices : Set String
+    , emailAddress : Maybe String
+    , mailSendState : MailSendState
     }
+
+type MailSendState
+    = MailUnsent
+    | MailSending
+    | MailSentSuccessfully
+    | MailSentWithError
 
 type OutcomeType
     = RecommendationType
@@ -79,6 +89,8 @@ newGame tree =
     , navigator = Navigator.new tree
     , idleTime = 0
     , activeChoices = Set.empty
+    , emailAddress = Nothing
+    , mailSendState = MailUnsent
     }
 
 
@@ -150,7 +162,30 @@ type Msg
     | Tick Time.Posix
     | Highlight Choice
     | Unhighlight Choice
+    | SendMail SendMailRequest
+    | GotSendMailResponse (Result Http.Error SendMailResponse)
+    | UserTypedEmailAddress String
 
+type alias SendMailRequest =
+    { to : String
+    , recommendation : String
+    , source : String
+    }
+
+sendMailRequestEncoder : SendMailRequest -> E.Value
+sendMailRequestEncoder smr =
+    E.object
+        [ ( "to", E.string smr.to )
+        , ( "recommendation", E.string smr.recommendation )
+        , ( "source", E.string smr.source )
+        ]
+
+type alias SendMailResponse =
+    {}
+
+sendMailResponseDecoder : D.Decoder SendMailResponse
+sendMailResponseDecoder =
+    D.succeed {}
 
 updateNoOp : Model -> ( Model, Cmd Msg )
 updateNoOp model =
@@ -192,6 +227,35 @@ updateGame msg game =
         
         Unhighlight choice ->
             ( Ok ({ game | activeChoices = game.activeChoices |> Set.remove choice.text} |> resetIdleTime), Cmd.none )
+        
+        SendMail smr ->
+            let
+                newModel = Ok { game | mailSendState = MailSending }
+                sendMailMsg =
+                    Http.post
+                        { url = "https://animechicago-cyoa-content.herokuapp.com/game/mail/"
+                        , body = Http.jsonBody (sendMailRequestEncoder smr)
+                        , expect = Http.expectJson GotSendMailResponse sendMailResponseDecoder
+                        }
+            
+            in
+            ( newModel, sendMailMsg )
+        
+        GotSendMailResponse res ->
+            let
+                newModel =
+                    case res of
+                        Ok resp ->
+                            Ok { game | mailSendState = MailSentSuccessfully }
+                        
+                        Err _ ->
+                            Ok { game | mailSendState = MailSentWithError }
+            
+            in
+            ( newModel, Cmd.none )
+        
+        UserTypedEmailAddress addr ->
+            ( Ok { game | emailAddress = Just addr }, Cmd.none )
 
 
 resetGame : Game -> Game
@@ -254,18 +318,18 @@ viewGame game =
                     El.none
                 )
             ] 
-        , viewTree (Navigator.getCurrent game.navigator) game.activeChoices
+        , viewTree game (Navigator.getCurrent game.navigator) game.activeChoices
         ]
 
 
-viewTree : Tree -> Set String -> Element Msg
-viewTree tree activeChoices =
+viewTree : Game -> Tree -> Set String -> Element Msg
+viewTree g tree activeChoices =
     case tree of
         Node question ->
             viewQuestion question activeChoices
 
         Leaf outcome ->
-            viewOutcome outcome
+            viewOutcome g outcome
 
 
 viewQuestion : Question -> Set String -> Element Msg
@@ -290,20 +354,38 @@ viewChoice choice activeChoices =
        ] (El.text choice.text)
 
 
-viewOutcome : Outcome -> Element msg
-viewOutcome recommendation =
+viewOutcome : Game -> Outcome -> Element Msg
+viewOutcome g recommendation =
     case recommendation of
         Recommendation info ->
-            viewRecommendationData info
+            viewRecommendationData g info
         
         Drawer drawer ->
             viewDrawer drawer
 
 
-viewRecommendationData : RecommendationData -> Element msg
-viewRecommendationData info =
+viewRecommendationData : Game -> RecommendationData -> Element Msg
+viewRecommendationData g info =
     El.column []
         [ El.el [] (El.text <| "You should watch " ++ info.title)
+        , Input.text
+            [ Font.color <| El.rgb255 0 0 0
+            ]
+            { onChange = UserTypedEmailAddress
+            , text = g.emailAddress |> Maybe.withDefault ""
+            , placeholder = Maybe.map (\a -> Input.placeholder [] (El.text a)) g.emailAddress
+            , label = Input.labelHidden "Your Email Address"
+            }
+        , Input.button
+            []
+            { onPress = Just (SendMail
+                { to = g.emailAddress |> Maybe.withDefault ""
+                , recommendation = info.title
+                , source = info.availableOn |> List.head |> Maybe.map (\s -> s.name) |> Maybe.withDefault "Nowhere"
+                }
+              )
+            , label = El.text "Go"
+            }
         ]
 
 
