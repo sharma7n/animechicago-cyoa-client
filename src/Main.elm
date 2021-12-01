@@ -261,7 +261,7 @@ updateGame msg game =
 
 
 resetGame : Game -> Game
-resetGame game = { game | navigator = Navigator.new game.base } |> resetIdleTime
+resetGame game = { game | navigator = Navigator.new game.base, mailSendState = MailUnsent } |> resetIdleTime
 
 resetIdleTime : Game -> Game
 resetIdleTime game = { game | idleTime = 0 }
