@@ -438,8 +438,16 @@ emailWidget g info =
                         ]
                         ( El.text "Your Email Address" )
                 }
-            , Input.button
-                [ Background.color secondaryColor
+            , viewSendMailButton g info
+            ]
+        ]
+
+viewSendMailButton : Game -> RecommendationData -> Element Msg
+viewSendMailButton g info =
+    case g.mailSendState of
+        MailUnsent ->
+            Input.button
+                [ Background.color Styles.widgetColor
                 , Border.rounded 5
                 , El.paddingXY 30 15
                 , Font.size 20
@@ -452,9 +460,39 @@ emailWidget g info =
                 )
                 , label = El.text "Send Email"
                 }
-            ]
-        ]
-
+        
+        MailSending ->
+            Input.button
+                [ Background.color <| El.rgb255 25 25 25
+                , Border.rounded 5
+                , El.paddingXY 30 15
+                , Font.size 20
+                ]
+                { onPress = Nothing
+                , label = El.text "Sending Email..."
+                }
+        
+        MailSentSuccessfully ->
+            El.paragraph
+                [ Font.regular
+                , Font.size 14
+                , Font.color Styles.activeColor
+                , El.alignLeft
+                , Font.alignLeft
+                ]
+                [ El.text "Your recommendation email is on its way!"
+                ]
+        
+        MailSentWithError ->
+            El.paragraph
+                [ Font.regular
+                , Font.size 14
+                , Font.color <| El.rgb255 225 25 25
+                , El.alignLeft
+                , Font.alignLeft
+                ]
+                [ El.text "いやだ! Your recommendation email could not be sent :("
+                ]
 
 viewDrawer : DrawerData -> Element msg
 viewDrawer drawerData =
