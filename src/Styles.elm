@@ -1,4 +1,4 @@
-module Styles exposing (backgroundColor, inactiveColor, activeColor, headerColor, bold, font)
+module Styles exposing (backgroundColor, inactiveColor, widgetColor, activeColor, headerColor, bold, font)
 
 import Element as El
 import Element.Font as Font
@@ -10,6 +10,10 @@ backgroundColor =
 inactiveColor : El.Color
 inactiveColor =
     El.rgb255 112 130 255
+
+widgetColor : El.Color
+widgetColor =
+    El.rgb255 42 60 185
 
 activeColor : El.Color
 activeColor =

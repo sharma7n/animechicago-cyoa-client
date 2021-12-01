@@ -14,6 +14,8 @@ import Element.Font as Font
 import Element.Input as Input
 import Element.Background as Background
 import Html exposing (Html)
+import Html.Attributes
+import Html.Events
 import Styles
 import Set exposing (Set)
 import Icons
@@ -273,7 +275,7 @@ view model = El.layout
     [ Background.color Styles.backgroundColor
     , Font.color Styles.headerColor
     , Font.size 25
-    , Styles.bold
+    , Font.bold
     , Styles.font
     ] (viewModel model)
 
@@ -366,26 +368,91 @@ viewOutcome g recommendation =
 
 viewRecommendationData : Game -> RecommendationData -> Element Msg
 viewRecommendationData g info =
-    El.column []
-        [ El.el [] (El.text <| "You should watch " ++ info.title)
-        , Input.text
-            [ Font.color <| El.rgb255 0 0 0
-            ]
-            { onChange = UserTypedEmailAddress
-            , text = g.emailAddress |> Maybe.withDefault ""
-            , placeholder = Maybe.map (\a -> Input.placeholder [] (El.text a)) g.emailAddress
-            , label = Input.labelHidden "Your Email Address"
-            }
-        , Input.button
+    El.column
+        [ El.spacing 90
+        ]
+        [ El.row
             []
-            { onPress = Just (SendMail
-                { to = g.emailAddress |> Maybe.withDefault ""
-                , recommendation = info.title
-                , source = info.availableOn |> List.head |> Maybe.map (\s -> s.name) |> Maybe.withDefault "Nowhere"
+            [ El.el
+                []
+                ( El.text "You should watch " )
+            , El.el
+                [ Font.italic
+                ]
+                ( El.text info.title )
+            
+            , El.el
+                []
+                ( El.text "." )
+            ]
+        , emailWidget g info
+        ]
+
+emailWidget : Game -> RecommendationData -> Element Msg
+emailWidget g info =
+    let
+        secondaryColor = Styles.widgetColor
+    in
+    El.column
+        [ Border.color secondaryColor
+        , Border.width 1
+        , El.width <| El.px 500
+        ]
+        [ El.column
+            [ Background.color secondaryColor
+            , El.paddingXY 30 15
+            , El.alignLeft
+            , El.width El.fill
+            ]
+            [ El.el
+                [ Font.bold
+                , Font.size 14 
+                ]
+                ( El.text "SEND YOURSELF A REMINDER!" )
+            ]
+        , El.column
+            [ El.padding 30
+            , El.spacing 30
+            ]
+            [ Input.email
+                [ Font.alignLeft
+                , Font.size 16
+                , El.spacing 15
+                , El.width <| El.px 350
+                , Border.rounded 5
+                , El.padding 15
+                , Font.regular
+                , Font.color <| El.rgb255 0 0 0
+                ]
+                { onChange = UserTypedEmailAddress
+                , text = g.emailAddress |> Maybe.withDefault ""
+                , placeholder = Just <|
+                    Input.placeholder
+                        [ Font.color <| El.rgb255 150 150 150
+                        ]
+                        ( El.text "name@email.address" )
+                , label =
+                    Input.labelAbove
+                        [ El.alignLeft
+                        , Font.size 20
+                        ]
+                        ( El.text "Your Email Address" )
                 }
-              )
-            , label = El.text "Go"
-            }
+            , Input.button
+                [ Background.color secondaryColor
+                , Border.rounded 5
+                , El.paddingXY 30 15
+                , Font.size 20
+                ]
+                { onPress = Just (SendMail
+                    { to = g.emailAddress |> Maybe.withDefault ""
+                    , recommendation = info.title
+                    , source = info.availableOn |> List.head |> Maybe.map (\s -> s.name) |> Maybe.withDefault "Nowhere"
+                    }
+                )
+                , label = El.text "Send Email"
+                }
+            ]
         ]
 
 
