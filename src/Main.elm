@@ -72,6 +72,7 @@ type alias Game =
     , activeChoices : Set String
     , emailAddress : Maybe String
     , mailSendState : MailSendState
+    , subscribe : Bool
     }
 
 type MailSendState
@@ -93,6 +94,7 @@ newGame tree =
     , activeChoices = Set.empty
     , emailAddress = Nothing
     , mailSendState = MailUnsent
+    , subscribe = False
     }
 
 
@@ -167,11 +169,13 @@ type Msg
     | SendMail SendMailRequest
     | GotSendMailResponse (Result Http.Error SendMailResponse)
     | UserTypedEmailAddress String
+    | UserCheckedSubscribeBox Bool
 
 type alias SendMailRequest =
     { to : String
     , recommendation : String
     , source : String
+    , subscribe : Bool
     }
 
 sendMailRequestEncoder : SendMailRequest -> E.Value
@@ -180,6 +184,7 @@ sendMailRequestEncoder smr =
         [ ( "to", E.string smr.to )
         , ( "recommendation", E.string smr.recommendation )
         , ( "source", E.string smr.source )
+        , ( "subscribe", E.bool smr.subscribe )
         ]
 
 type alias SendMailResponse =
@@ -258,10 +263,18 @@ updateGame msg game =
         
         UserTypedEmailAddress addr ->
             ( Ok { game | emailAddress = Just addr }, Cmd.none )
+        
+        UserCheckedSubscribeBox checked ->
+            ( Ok { game | subscribe = checked }, Cmd.none )
 
 
 resetGame : Game -> Game
-resetGame game = { game | navigator = Navigator.new game.base, mailSendState = MailUnsent } |> resetIdleTime
+resetGame game = 
+    { game 
+        | navigator = Navigator.new game.base
+        , mailSendState = MailUnsent
+        , subscribe = False
+    } |> resetIdleTime
 
 resetIdleTime : Game -> Game
 resetIdleTime game = { game | idleTime = 0 }
@@ -438,9 +451,48 @@ emailWidget g info =
                         ]
                         ( El.text "Your Email Address" )
                 }
+            , El.column
+                [ Font.alignLeft
+                , El.spacing 10
+                ]
+                [ El.paragraph
+                    [ Font.size 20
+                    ]
+                    [ El.text "Join our Mailing List?"
+                    ]
+                , El.paragraph
+                    [ Font.size 14
+                    , Font.regular
+                    , Font.color <| El.rgb255 150 150 150
+                    ]
+                    [ El.text "700+ subscribers have. We never spam or share info, pinky swear."
+                    ]
+                ]
+            , checkbox g
             , viewSendMailButton g info
             ]
         ]
+
+checkbox : Game -> Element Msg
+checkbox g =
+    Input.checkbox
+        [ El.spacing 15
+        ]
+        { onChange = UserCheckedSubscribeBox
+        , icon = Input.defaultCheckbox
+        , checked = g.subscribe
+        , label =
+            Input.labelRight
+                [ El.width El.fill
+                ]
+                ( El.paragraph
+                    [ Font.size 16
+                    , Font.alignLeft
+                    ]
+                    [ El.text "Yes, send me monthly emails on anime events, movie screenings, and AnimeChicago news."
+                    ]
+                )
+        }
 
 viewSendMailButton : Game -> RecommendationData -> Element Msg
 viewSendMailButton g info =
@@ -456,6 +508,7 @@ viewSendMailButton g info =
                     { to = g.emailAddress |> Maybe.withDefault ""
                     , recommendation = info.title
                     , source = info.availableOn |> List.head |> Maybe.map (\s -> s.name) |> Maybe.withDefault "Nowhere"
+                    , subscribe = g.subscribe
                     }
                 )
                 , label = El.text "Send Email"
