@@ -1,4 +1,4 @@
-module Main exposing (Choice, Game, Model, Msg(..), Question, Outcome, Source, Tree(..), choiceDecoder, init, main, newGame, questionDecoder, outcomeDecoder, sourceDecoder, subscriptions, treeDecoder, update, updateGame, updateNoOp, view, viewChoice, viewError, viewGame, viewLoading, viewQuestion, viewOutcome, viewSource, viewTree)
+module Main exposing (Choice, Game, Model, Msg(..), Question, Outcome, Source, Tree(..), choiceDecoder, init, main, treeToGame, questionDecoder, outcomeDecoder, sourceDecoder, subscriptions, treeDecoder, update, updateGame, updateNoOp, view, viewChoice, viewError, viewGame, viewLoading, viewQuestion, viewOutcome, viewSource, viewTree)
 
 import Browser
 import Http
@@ -86,8 +86,8 @@ type OutcomeType
     | DrawerType
 
 
-newGame : Tree -> Game
-newGame tree =
+treeToGame : Tree -> Game
+treeToGame tree =
     { base = tree
     , navigator = Navigator.new tree
     , idleTime = 0
@@ -212,32 +212,97 @@ updateGame : Msg -> Game -> ( Model, Cmd Msg )
 updateGame msg game =
     case msg of
         Select choice ->
-            ( Ok ({ game | navigator = Navigator.push choice.result game.navigator, activeChoices = game.activeChoices |> Set.remove choice.text} |> resetIdleTime), Cmd.none )
+            let
+                newGame =
+                    { game 
+                        | navigator = Navigator.push choice.result game.navigator
+                        , activeChoices =
+                            game.activeChoices 
+                                |> Set.remove choice.text
+                    }
+                        |> resetIdleTime
+            in
+            ( Ok newGame, Cmd.none )
 
         Reset ->
-            ( Ok (resetGame game), Cmd.none )
+            let
+                newGame =
+                    game
+                        |> resetGame
+            in
+            ( Ok newGame, Cmd.none )
 
         Back ->
-            ( Ok ({ game | navigator = Navigator.back game.navigator } |> resetIdleTime), Cmd.none )
+            let 
+                newGame =
+                    { game 
+                        | navigator = Navigator.back game.navigator 
+                    } 
+                        |> resetIdleTime 
+                        |> resetMailState
+            in
+            ( Ok newGame, Cmd.none )
 
         Forward ->
-            ( Ok ({ game | navigator = Navigator.forward game.navigator} |> resetIdleTime), Cmd.none )
+            let
+                newGame =
+                    { game 
+                        | navigator = Navigator.forward game.navigator
+                    } 
+                        |> resetIdleTime
+            in
+            ( Ok game, Cmd.none )
         
         Tick _ ->
             if game.idleTime > 60 then
-                ( Ok (resetGame game), Cmd.none )
+                let
+                    newGame =
+                        game
+                            |> resetGame
+                in
+                ( Ok newGame, Cmd.none )
             else
-                ( Ok { game | idleTime = game.idleTime + 1}, Cmd.none )
+                let
+                    newGame =
+                        { game 
+                            | idleTime = game.idleTime + 1
+                        }
+                in
+                ( Ok newGame, Cmd.none )
 
         Highlight choice ->
-            ( Ok ({ game | activeChoices = game.activeChoices |> Set.insert choice.text} |> resetIdleTime), Cmd.none )
+            let
+                newGame =
+                    { game 
+                        | activeChoices =
+                            game.activeChoices 
+                                |> Set.insert choice.text
+                    } 
+                        |> resetIdleTime
+
+            in
+            ( Ok newGame, Cmd.none )
         
         Unhighlight choice ->
-            ( Ok ({ game | activeChoices = game.activeChoices |> Set.remove choice.text} |> resetIdleTime), Cmd.none )
+            let
+                newGame =
+                    { game 
+                        | activeChoices =
+                            game.activeChoices
+                                |> Set.remove choice.text
+                    } 
+                        |> resetIdleTime
+            in
+            ( Ok newGame, Cmd.none )
         
         SendMail smr ->
             let
-                newModel = Ok { game | mailSendState = MailSending }
+                newGame =
+                    { game
+                        | mailSendState = MailSending
+                    }
+                        |> resetIdleTime
+                
                 sendMailMsg =
                     Http.post
                         { url = "https://animechicago-cyoa-content.herokuapp.com/game/mail/"
@@ -246,7 +311,7 @@ updateGame msg game =
                         }
             
             in
-            ( newModel, sendMailMsg )
+            ( Ok newGame, sendMailMsg )
         
         GotSendMailResponse res ->
             let
@@ -262,19 +327,42 @@ updateGame msg game =
             ( newModel, Cmd.none )
         
         UserTypedEmailAddress addr ->
-            ( Ok { game | emailAddress = Just addr }, Cmd.none )
+            let
+                newGame =
+                    { game 
+                        | emailAddress = Just addr 
+                    }
+                        |> resetIdleTime
+
+            in
+            ( Ok newGame, Cmd.none )
         
         UserCheckedSubscribeBox checked ->
-            ( Ok { game | subscribe = checked }, Cmd.none )
+            let
+                newGame =
+                    { game 
+                        | subscribe = checked 
+                    }
+                        |> resetIdleTime
+            in
+            ( Ok newGame, Cmd.none )
 
+
+resetMailState : Game -> Game
+resetMailState g =
+    { g
+        | mailSendState = MailUnsent
+        , emailAddress = Nothing
+        , subscribe = False
+    }
 
 resetGame : Game -> Game
 resetGame game = 
     { game 
         | navigator = Navigator.new game.base
-        , mailSendState = MailUnsent
-        , subscribe = False
-    } |> resetIdleTime
+    } 
+    |> resetMailState
+    |> resetIdleTime
 
 resetIdleTime : Game -> Game
 resetIdleTime game = { game | idleTime = 0 }
@@ -590,7 +678,7 @@ init : D.Value -> ( Model, Cmd Msg )
 init json =
     case getTree json of
         Ok tree ->
-            ( Ok (newGame tree)
+            ( Ok (treeToGame tree)
             , Cmd.none
             )
         
