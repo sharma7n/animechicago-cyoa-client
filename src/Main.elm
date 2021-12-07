@@ -19,6 +19,7 @@ import Html.Events
 import Styles
 import Set exposing (Set)
 import Icons
+import EmailAddress
 
 
 -- MODEL
@@ -70,7 +71,7 @@ type alias Game =
     , navigator : Navigator.Navigator Tree
     , idleTime : Int
     , activeChoices : Set String
-    , emailAddress : Maybe String
+    , emailAddress : EmailAddress.Entry
     , mailSendState : MailSendState
     , subscribe : Bool
     }
@@ -80,6 +81,8 @@ type MailSendState
     | MailSending
     | MailSentSuccessfully
     | MailSentWithError
+
+
 
 type OutcomeType
     = RecommendationType
@@ -92,7 +95,7 @@ treeToGame tree =
     , navigator = Navigator.new tree
     , idleTime = 0
     , activeChoices = Set.empty
-    , emailAddress = Nothing
+    , emailAddress = EmailAddress.Blank
     , mailSendState = MailUnsent
     , subscribe = False
     }
@@ -330,7 +333,7 @@ updateGame msg game =
             let
                 newGame =
                     { game 
-                        | emailAddress = Just addr 
+                        | emailAddress = EmailAddress.validate addr
                     }
                         |> resetIdleTime
 
@@ -352,7 +355,7 @@ resetMailState : Game -> Game
 resetMailState g =
     { g
         | mailSendState = MailUnsent
-        , emailAddress = Nothing
+        , emailAddress = EmailAddress.Blank
         , subscribe = False
     }
 
@@ -515,30 +518,49 @@ emailWidget g info =
             [ El.padding 30
             , El.spacing 30
             ]
-            [ Input.email
+            [ El.column
                 [ Font.alignLeft
-                , Font.size 16
-                , El.spacing 15
-                , El.width <| El.px 350
-                , Border.rounded 5
-                , El.padding 15
-                , Font.regular
-                , Font.color <| El.rgb255 0 0 0
+                , El.spacing 10
                 ]
-                { onChange = UserTypedEmailAddress
-                , text = g.emailAddress |> Maybe.withDefault ""
-                , placeholder = Just <|
-                    Input.placeholder
-                        [ Font.color <| El.rgb255 150 150 150
-                        ]
-                        ( El.text "name@email.address" )
-                , label =
-                    Input.labelAbove
-                        [ El.alignLeft
-                        , Font.size 20
-                        ]
-                        ( El.text "Your Email Address" )
-                }
+                [ Input.email
+                    [ Font.alignLeft
+                    , Font.size 16
+                    , El.spacing 15
+                    , El.width <| El.px 350
+                    , Border.rounded 5
+                    , El.padding 15
+                    , Font.regular
+                    , Font.color <| El.rgb255 0 0 0
+                    ]
+                    { onChange = UserTypedEmailAddress
+                    , text = g.emailAddress |> EmailAddress.toString
+                    , placeholder = Just <|
+                        Input.placeholder
+                            [ Font.color <| El.rgb255 150 150 150
+                            ]
+                            ( El.text "name@email.address" )
+                    , label =
+                        Input.labelAbove
+                            [ El.alignLeft
+                            , Font.size 20
+                            ]
+                            ( El.text "Your Email Address" )
+                    }
+                , case g.emailAddress of
+                    EmailAddress.Invalid _ ->
+                        El.paragraph
+                            [ Font.regular
+                            , Font.size 14
+                            , Font.color <| El.rgb255 225 25 25
+                            , El.alignLeft
+                            , Font.alignLeft
+                            ]
+                            [ El.text "Please enter a valid email address."
+                            ]
+                    
+                    _ ->
+                        El.none
+                ]
             , El.column
                 [ Font.alignLeft
                 , El.spacing 10
@@ -584,25 +606,8 @@ checkbox g =
 
 viewSendMailButton : Game -> RecommendationData -> Element Msg
 viewSendMailButton g info =
-    case g.mailSendState of
-        MailUnsent ->
-            Input.button
-                [ Background.color Styles.widgetColor
-                , Border.rounded 5
-                , El.paddingXY 30 15
-                , Font.size 20
-                ]
-                { onPress = Just (SendMail
-                    { to = g.emailAddress |> Maybe.withDefault ""
-                    , recommendation = info.title
-                    , source = info.availableOn |> List.head |> Maybe.map (\s -> s.name) |> Maybe.withDefault "Nowhere"
-                    , subscribe = g.subscribe
-                    }
-                )
-                , label = El.text "Send Email"
-                }
-        
-        MailSending ->
+    let
+        disabledButton text =
             Input.button
                 [ Background.color <| El.rgb255 25 25 25
                 , Border.rounded 5
@@ -610,8 +615,37 @@ viewSendMailButton g info =
                 , Font.size 20
                 ]
                 { onPress = Nothing
-                , label = El.text "Sending Email..."
+                , label = El.text text
                 }
+    in
+    case g.mailSendState of
+        MailUnsent ->
+            case g.emailAddress of
+                EmailAddress.Blank ->
+                    disabledButton "Send Email"
+                
+                EmailAddress.Invalid _ ->
+                    disabledButton "Send Email"
+                
+                EmailAddress.Valid addr ->
+                    Input.button
+                        [ Background.color Styles.widgetColor
+                        , Border.rounded 5
+                        , El.paddingXY 30 15
+                        , Font.size 20
+                        ]
+                        { onPress = Just (SendMail
+                            { to = addr
+                            , recommendation = info.title
+                            , source = info.availableOn |> List.head |> Maybe.map (\s -> s.name) |> Maybe.withDefault "Nowhere"
+                            , subscribe = g.subscribe
+                            }
+                        )
+                        , label = El.text "Send Email"
+                        }
+        
+        MailSending ->
+            disabledButton "Sending Email..."
         
         MailSentSuccessfully ->
             El.paragraph
